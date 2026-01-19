@@ -13,7 +13,7 @@ import os
 
 # Config
 DB_URL = "postgresql://localhost/yow_lens_test"
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'AIzaSyARJ5pKG26LhsrfX9pidnLjJlYrY3jIEOA')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 print("Loading FashionCLIP...")
 from fashion_clip.fashion_clip import FashionCLIP

@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 from google import genai
 from google.genai import types
 
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'AIzaSyARJ5pKG26LhsrfX9pidnLjJlYrY3jIEOA')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 class GarmentAnalyzer:
     def __init__(self):

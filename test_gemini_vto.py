@@ -7,7 +7,7 @@ import io
 import os
 import random
 
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'AIzaSyARJ5pKG26LhsrfX9pidnLjJlYrY3jIEOA')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Load test image
