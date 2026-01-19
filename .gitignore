@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+*.jpg
+*.jpeg
+*.png
+asos_products/
+asos_products_full.json
+asos_products_1000.json
+.venv/
+venv/

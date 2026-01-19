@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pillow
+numpy
+fashion-clip
+google-genai
+python-multipart
+pinecone
+psycopg2-binary
