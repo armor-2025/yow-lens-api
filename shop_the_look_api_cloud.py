@@ -17,7 +17,7 @@ import os
 
 # ============== CONFIG ==============
 
-SUPABASE_URL = "postgresql://postgres:1WFf3xVzY3HVaSRz@db.eayoasnkemanrguvfuch.supabase.co:5432/postgres"
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
 PINECONE_API_KEY = "pcsk_3e2bNu_ESZ77iM7pxPbnFrb1GgH4hRZrpeLmwrw6TWoQg8Rd8QFvP3NXx2E3Y5ohtD5W8r"
 PINECONE_INDEX = "yow-products"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
