@@ -107,10 +107,12 @@ def preprocess_image(image: Image.Image, max_dim: int = 1500) -> Image.Image:
     return Image.open(buffer)
 
 
-def search_pinecone(embedding: list, category: str = None, limit: int = 50) -> list:
+def search_pinecone(embedding: list, category: str = None, subcategory: str = None, limit: int = 50) -> list:
     """Search Pinecone for similar products"""
     filter_dict = {}
-    if category:
+    if subcategory:
+        filter_dict["subcategory"] = {"$eq": subcategory}
+    elif category:
         filter_dict["category"] = {"$eq": category}
     
     results = pinecone_index.query(
@@ -194,8 +196,13 @@ async def shop_the_look(
         embedding = fashion_clip.encode_images([crop_img], batch_size=1)[0]
         embedding_list = embedding.tolist()
         
-        # Search Pinecone
-        matches = search_pinecone(embedding_list, category=category, limit=limit_per_item * 2)
+        # Search Pinecone - try subcategory first, fallback to category
+        subcategory = attrs.get('subcategory', '').lower()
+        matches = search_pinecone(embedding_list, subcategory=subcategory, limit=limit_per_item * 2)
+        
+        # Fallback to category if no/few results
+        if len(matches) < 3:
+            matches = search_pinecone(embedding_list, category=category, limit=limit_per_item * 2)
         
         # Get product details from Supabase
         product_ids = [m.id for m in matches]
