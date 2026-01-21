@@ -14,6 +14,10 @@ import io
 from PIL import Image
 import numpy as np
 import os
+import requests
+import json
+from datetime import datetime
+import uuid
 
 # ============== CONFIG ==============
 
@@ -91,6 +95,16 @@ class ShopTheLookResponse(BaseModel):
     items_detected: int
     results: dict
 
+class ProcessInspoRequest(BaseModel):
+    image_url: str
+    user_id: Optional[str] = None
+
+class ProcessInspoResponse(BaseModel):
+    success: bool
+    post_id: str
+    items_detected: int
+    results: dict
+
 
 # ============== HELPERS ==============
 
@@ -158,7 +172,195 @@ def get_products_from_supabase(product_ids: list) -> dict:
     return products
 
 
+def download_image(url: str) -> Image.Image:
+    """Download image from URL"""
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    return Image.open(io.BytesIO(response.content))
+
+
+def save_inspo_post(post_id: str, user_id: str, image_url: str, detected_items: dict, product_matches: dict, embeddings: dict):
+    """Save processed inspo post to database"""
+    conn = psycopg2.connect(SUPABASE_URL)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        INSERT INTO inspo_posts (id, user_id, image_url, detected_items, product_matches, embeddings, processed_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            detected_items = EXCLUDED.detected_items,
+            product_matches = EXCLUDED.product_matches,
+            embeddings = EXCLUDED.embeddings,
+            processed_at = EXCLUDED.processed_at
+    """, (
+        post_id,
+        user_id if user_id else None,
+        image_url,
+        json.dumps(detected_items),
+        json.dumps(product_matches),
+        json.dumps(embeddings),
+        datetime.utcnow()
+    ))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_inspo_post(post_id: str) -> dict:
+    """Get cached inspo post from database"""
+    conn = psycopg2.connect(SUPABASE_URL)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT id, user_id, image_url, detected_items, product_matches, embeddings, likes_count, comments_count, created_at, processed_at
+        FROM inspo_posts
+        WHERE id = %s
+    """, (post_id,))
+    
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not row:
+        return None
+    
+    return {
+        'id': str(row[0]),
+        'user_id': str(row[1]) if row[1] else None,
+        'image_url': row[2],
+        'detected_items': row[3],
+        'product_matches': row[4],
+        'embeddings': row[5],
+        'likes_count': row[6],
+        'comments_count': row[7],
+        'created_at': row[8].isoformat() if row[8] else None,
+        'processed_at': row[9].isoformat() if row[9] else None
+    }
+
+
 # ============== ENDPOINTS ==============
+
+@app.post("/process-inspo", response_model=ProcessInspoResponse)
+async def process_inspo_image(request: ProcessInspoRequest):
+    """
+    Process an inspo image from URL and cache results.
+    Use this when a user uploads a new inspo post.
+    """
+    try:
+        # Download image
+        raw_image = download_image(request.image_url)
+        image = preprocess_image(raw_image)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download image: {str(e)}")
+    
+    # Detect items with Gemini
+    items = analyzer.analyze_outfit(image)
+    crops = analyzer.crop_items(image, items)
+    
+    if not crops:
+        raise HTTPException(status_code=400, detail="No fashion items detected")
+    
+    results = {}
+    detected_items = {}
+    embeddings = {}
+    
+    for crop_data in crops:
+        attrs = crop_data['attributes']
+        crop_img = crop_data['image']
+        
+        category = attrs.get('category', 'unknown').lower()
+        label = attrs.get('label', 'unknown')
+        
+        if not attrs.get('bounding_box'):
+            continue
+        
+        # Generate embedding with FashionCLIP
+        embedding = fashion_clip.encode_images([crop_img], batch_size=1)[0]
+        embedding_list = embedding.tolist()
+        
+        # Search Pinecone
+        subcategory = attrs.get('subcategory', '').lower()
+        matches = search_pinecone(embedding_list, subcategory=subcategory, limit=20)
+        
+        if len(matches) < 3:
+            matches = search_pinecone(embedding_list, category=category, limit=20)
+        
+        # Get product details
+        product_ids = [m.id for m in matches]
+        products = get_products_from_supabase(product_ids)
+        
+        # Build response
+        product_matches = []
+        for m in matches[:10]:
+            if m.id in products:
+                p = products[m.id]
+                product_matches.append({
+                    'id': p['id'],
+                    'name': p['name'],
+                    'brand': p['brand'] or '',
+                    'price': p['price'],
+                    'color': p['color'] or '',
+                    'category': p['category'] or '',
+                    'image_url': p['image_url'] or '',
+                    'product_url': p['product_url'],
+                    'similarity_score': round(m.score, 3)
+                })
+        
+        item_key = f"{category}_{label[:30].replace(' ', '_')}"
+        
+        detected_items[item_key] = {
+            'category': category,
+            'label': label,
+            'color': attrs.get('color'),
+            'material': attrs.get('material'),
+            'pattern': attrs.get('pattern'),
+            'bounding_box': attrs.get('bounding_box')
+        }
+        
+        results[item_key] = {
+            'detected_item': detected_items[item_key],
+            'products': product_matches,
+            'total_matches': len(matches)
+        }
+        
+        embeddings[item_key] = embedding_list
+    
+    # Generate post ID and save to database
+    post_id = str(uuid.uuid4())
+    save_inspo_post(
+        post_id=post_id,
+        user_id=request.user_id,
+        image_url=request.image_url,
+        detected_items=detected_items,
+        product_matches={k: v['products'] for k, v in results.items()},
+        embeddings=embeddings
+    )
+    
+    return ProcessInspoResponse(
+        success=True,
+        post_id=post_id,
+        items_detected=len(results),
+        results=results
+    )
+
+
+@app.get("/inspo/{post_id}")
+async def get_inspo(post_id: str):
+    """
+    Get cached inspo post data.
+    Use this when user taps on an inspo image in the feed.
+    """
+    post = get_inspo_post(post_id)
+    
+    if not post:
+        raise HTTPException(status_code=404, detail="Inspo post not found")
+    
+    return {
+        "success": True,
+        "post": post
+    }
+
 
 @app.post("/shop-the-look", response_model=ShopTheLookResponse)
 async def shop_the_look(
@@ -237,7 +439,7 @@ async def shop_the_look(
             ).dict(),
             'products': [p.dict() for p in product_matches],
             'total_matches': len(matches),
-            'embedding': embedding_list  # Return for caching!
+            'embedding': embedding_list
         }
     
     return ShopTheLookResponse(
