@@ -380,12 +380,21 @@ async def process_inspo_image(request: ProcessInspoRequest):
         embeddings=embeddings
     )
     
-    return ProcessInspoResponse(
-        success=True,
-        post_id=post_id,
-        items_detected=len(results_list),
-        results=results_list
-    )
+    # Flatten all products from all detected items for easy FlutterFlow consumption
+    all_products = []
+    for item in results_list:
+        for product in item['products']:
+            product['detected_category'] = item['detected_item']['category']
+            product['detected_label'] = item['detected_item']['label']
+            all_products.append(product)
+    
+    return {
+        "success": True,
+        "post_id": post_id,
+        "items_detected": len(results_list),
+        "results": results_list,
+        "products": all_products
+    }
 
 
 @app.get("/inspo/{post_id}")
