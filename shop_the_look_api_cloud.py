@@ -194,7 +194,7 @@ def save_inspo_post(post_id: str, user_id: str, image_url: str, detected_items: 
             processed_at = EXCLUDED.processed_at
     """, (
         post_id,
-        user_id if user_id else None,
+        user_id if user_id and user_id.strip() else None,
         image_url,
         json.dumps(detected_items),
         json.dumps(product_matches),
@@ -330,7 +330,7 @@ async def process_inspo_image(request: ProcessInspoRequest):
     post_id = str(uuid.uuid4())
     save_inspo_post(
         post_id=post_id,
-        user_id=request.user_id,
+        user_id=request.user_id if request.user_id and request.user_id.strip() else None,
         image_url=request.image_url,
         detected_items=detected_items,
         product_matches={k: v['products'] for k, v in results.items()},
