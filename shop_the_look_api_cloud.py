@@ -26,6 +26,42 @@ PINECONE_API_KEY = "pcsk_3e2bNu_ESZ77iM7pxPbnFrb1GgH4hRZrpeLmwrw6TWoQg8Rd8QFvP3N
 PINECONE_INDEX = "yow-products"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Category priority for sorting (lower = more prominent, shown first)
+CATEGORY_PRIORITY = {
+    'outerwear': 1,
+    'coat': 1,
+    'jacket': 1,
+    'blazer': 1,
+    'dress': 2,
+    'jumpsuit': 2,
+    'top': 3,
+    'shirt': 3,
+    'blouse': 3,
+    'sweater': 3,
+    'bottom': 4,
+    'pants': 4,
+    'jeans': 4,
+    'skirt': 4,
+    'shorts': 4,
+    'shoes': 5,
+    'footwear': 5,
+    'bag': 6,
+    'handbag': 6,
+    'accessory': 7,
+    'accessories': 7,
+    'jewelry': 8,
+    'hat': 8,
+    'scarf': 8,
+    'belt': 8,
+    'sunglasses': 8,
+    'watch': 8,
+}
+
+def get_category_priority(category: str) -> int:
+    """Get sort priority for a category (lower = shown first)"""
+    cat_lower = category.lower() if category else 'unknown'
+    return CATEGORY_PRIORITY.get(cat_lower, 99)
+
 # ============== APP ==============
 
 app = FastAPI(title="YOW Lens - Shop the Look API", version="2.0")
@@ -103,7 +139,7 @@ class ProcessInspoResponse(BaseModel):
     success: bool
     post_id: str
     items_detected: int
-    results: dict
+    results: List[dict]  # Changed from dict to List[dict]
 
 
 # ============== HELPERS ==============
@@ -245,7 +281,7 @@ def get_inspo_post(post_id: str) -> dict:
 async def process_inspo_image(request: ProcessInspoRequest):
     """
     Process an inspo image from URL and cache results.
-    Use this when a user uploads a new inspo post.
+    Returns results as an array sorted by category prominence (outerwear/tops/bottoms first, accessories last).
     """
     try:
         # Download image
@@ -261,7 +297,7 @@ async def process_inspo_image(request: ProcessInspoRequest):
     if not crops:
         raise HTTPException(status_code=400, detail="No fashion items detected")
     
-    results = {}
+    results_list = []  # Changed to list
     detected_items = {}
     embeddings = {}
     
@@ -309,7 +345,7 @@ async def process_inspo_image(request: ProcessInspoRequest):
         
         item_key = f"{category}_{label[:30].replace(' ', '_')}"
         
-        detected_items[item_key] = {
+        detected_item = {
             'category': category,
             'label': label,
             'color': attrs.get('color'),
@@ -318,13 +354,20 @@ async def process_inspo_image(request: ProcessInspoRequest):
             'bounding_box': attrs.get('bounding_box')
         }
         
-        results[item_key] = {
-            'detected_item': detected_items[item_key],
+        detected_items[item_key] = detected_item
+        
+        # Add to results list (will sort later)
+        results_list.append({
+            'item_key': item_key,
+            'detected_item': detected_item,
             'products': product_matches,
             'total_matches': len(matches)
-        }
+        })
         
         embeddings[item_key] = embedding_list
+    
+    # Sort results by category priority (outerwear/tops/bottoms first, accessories last)
+    results_list.sort(key=lambda x: get_category_priority(x['detected_item']['category']))
     
     # Generate post ID and save to database
     post_id = str(uuid.uuid4())
@@ -333,15 +376,15 @@ async def process_inspo_image(request: ProcessInspoRequest):
         user_id=request.user_id if request.user_id and request.user_id.strip() and request.user_id.lower() != "null" else None,
         image_url=request.image_url,
         detected_items=detected_items,
-        product_matches={k: v['products'] for k, v in results.items()},
+        product_matches={item['item_key']: item['products'] for item in results_list},
         embeddings=embeddings
     )
     
     return ProcessInspoResponse(
         success=True,
         post_id=post_id,
-        items_detected=len(results),
-        results=results
+        items_detected=len(results_list),
+        results=results_list
     )
 
 
