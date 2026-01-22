@@ -330,7 +330,7 @@ async def process_inspo_image(request: ProcessInspoRequest):
     post_id = str(uuid.uuid4())
     save_inspo_post(
         post_id=post_id,
-        user_id=request.user_id if request.user_id and request.user_id.strip() else None,
+        user_id=request.user_id if request.user_id and request.user_id.strip() and request.user_id.lower() != "null" else None,
         image_url=request.image_url,
         detected_items=detected_items,
         product_matches={k: v['products'] for k, v in results.items()},
