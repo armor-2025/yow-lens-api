@@ -7,3 +7,4 @@ google-genai
 python-multipart
 pinecone
 psycopg2-binary
+transformers==4.36.0
