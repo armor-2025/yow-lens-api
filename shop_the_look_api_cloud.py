@@ -546,9 +546,6 @@ async def root():
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 # Query parameter version for FlutterFlow compatibility
 @app.get("/inspo-post")
@@ -558,3 +555,7 @@ async def get_inspo_query(post_id: str):
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"success": True, "post": post}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
