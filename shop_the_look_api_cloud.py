@@ -556,6 +556,65 @@ async def get_inspo_query(post_id: str):
         raise HTTPException(status_code=404, detail="Post not found")
     return {"success": True, "post": post}
 
+
+
+# Priority order for categories
+CATEGORY_PRIORITY = ['outerwear', 'top', 'bottom', 'dress', 'shoes', 'bag', 'accessory', 'sunglasses', 'jewelry']
+
+@app.get("/inspo-categories")
+async def get_inspo_categories(post_id: str):
+    """Get cached inspo post with clean category structure for FlutterFlow"""
+    post = get_inspo_post(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Build clean category list
+    categories = []
+    product_matches = post.get('product_matches', {})
+    detected_items = post.get('detected_items', {})
+    
+    # Group by base category and sort by priority
+    category_data = {}
+    for item_key, products in product_matches.items():
+        if not products:  # Skip empty categories
+            continue
+        
+        # Extract base category from item_key (e.g., "top_denim_shirt" -> "top")
+        base_category = item_key.split('_')[0]
+        
+        # Get item details
+        item_details = detected_items.get(item_key, {})
+        
+        if base_category not in category_data:
+            category_data[base_category] = {
+                'category': base_category,
+                'item_key': item_key,
+                'label': item_details.get('label', item_key),
+                'color': item_details.get('color', ''),
+                'best_match': products[0] if products else None,
+                'all_matches': products,
+                'match_count': len(products)
+            }
+    
+    # Sort by priority order
+    for cat in CATEGORY_PRIORITY:
+        if cat in category_data:
+            categories.append(category_data[cat])
+    
+    # Add any remaining categories not in priority list
+    for cat, data in category_data.items():
+        if cat not in CATEGORY_PRIORITY:
+            categories.append(data)
+    
+    return {
+        "success": True,
+        "post_id": post.get('id'),
+        "image_url": post.get('image_url'),
+        "categories": categories,
+        "total_categories": len(categories)
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
